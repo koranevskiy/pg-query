@@ -1,0 +1,21 @@
+{
+  "name": "pg-query",
+  "version": "1.0.0",
+  "description": "Node.js query builder for postgres",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --require ts-node/register test/tests.ts",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec ts-node src/index.ts"
+  },
+  "keywords": [
+    "SQL",
+    "Postgres"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "nodemon": "^3.1.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}
