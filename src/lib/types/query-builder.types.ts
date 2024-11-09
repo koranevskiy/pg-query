@@ -4,4 +4,6 @@ interface QueryRunner {
 
 type TablesDefinition<T> = T extends { [key: string]: any } ? T : never;
 
-export { QueryRunner, TablesDefinition };
+type QueryParams = Record<string, any>
+
+export { QueryRunner, TablesDefinition, QueryParams };

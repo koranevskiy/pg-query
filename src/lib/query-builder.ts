@@ -1,7 +1,7 @@
 import { ColumnsNames, TableNames, TablesDefinition } from 'src/lib/types/select.types';
-import { QueryRunner } from 'src/lib/types/query-builder.types';
+import { QueryParams, QueryRunner } from 'src/lib/types/query-builder.types';
 import { getSafeColumnName, getSafeTableName } from 'src/lib/utils/table.utils';
-import { JoinStatement } from 'src/lib/types/join.types';
+import { JoinStatement, JoinType, WhereToJoinTableIdentity } from 'src/lib/types/join.types';
 
 class QueryBuilder<T extends TablesDefinition<T>> {
   private isSelected = false;
@@ -12,7 +12,13 @@ class QueryBuilder<T extends TablesDefinition<T>> {
 
   private tableAlias: Record<string, string> = {};
 
+  private isJoined = false;
+
   private joinStatements: JoinStatement[] = [];
+
+  private params: any[] = [];
+
+  private paramNum = 1;
 
   constructor(private readonly queryRunner: QueryRunner) {}
 
@@ -29,6 +35,63 @@ class QueryBuilder<T extends TablesDefinition<T>> {
 
   private addTableSelect(tableName: string, tableAlias?: string): void {
     this.selectTables.push(getSafeTableName(tableName, tableAlias));
+  }
+
+  private findJoinStatement(tableIdentity: WhereToJoinTableIdentity<T>): JoinStatement {
+    const statement = this.joinStatements.find(
+      ({ tableName }) => getSafeTableName(tableIdentity.tableName as string, tableIdentity.tableAlias) === tableName
+    );
+    if (!statement) {
+      throw new Error(
+        `Unable to find join table where name = ${tableIdentity.tableName as string} and alias = ${
+          tableIdentity.tableAlias
+        }`
+      );
+    }
+    return statement;
+  }
+
+  private join<TKey extends TableNames<T>>(
+    tableName: TKey,
+    columnNames: ColumnsNames<T, TKey>[],
+    type: JoinType,
+    tableAlias?: string
+  ) {
+    if (!this.isJoined) {
+      this.isJoined = true;
+    }
+
+    if (tableAlias) {
+      this.registerTableAlias(tableName as string, tableAlias);
+    }
+
+    const columnsToSelect = columnNames.map(col => getSafeColumnName(col as string, tableName as string, tableAlias));
+    this.joinStatements.push({
+      type,
+      tableAlias,
+      tableName: getSafeTableName(tableName as string, tableAlias),
+      selectedColumns: columnsToSelect,
+      where: [],
+    });
+
+    return this;
+  }
+
+  private parametrizeStatement(rawSql: string, params?: QueryParams) {
+    if (!params) {
+      return rawSql;
+    }
+    const paramsEntries = Object.entries(params);
+    let resultSql = rawSql;
+    for (const [placeholder, value] of paramsEntries) {
+      const fullPlaceholder = `:${placeholder}`;
+      if (!resultSql.includes(fullPlaceholder)) {
+        continue;
+      }
+      resultSql = resultSql.replaceAll(fullPlaceholder, `${this.paramNum++}`);
+      this.params.push(value);
+    }
+    return resultSql;
   }
 
   public select<TKey extends TableNames<T>>(
@@ -54,7 +117,27 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     columnNames: ColumnsNames<T, TKey>[],
     tableAlias?: string
   ) {
-    return this;
+    return this.join(tableName, columnNames, 'left', tableAlias);
+  }
+
+  public rightJoinAndSelect<TKey extends TableNames<T>>(
+    tableName: TKey,
+    columnNames: ColumnsNames<T, TKey>[],
+    tableAlias?: string
+  ) {
+    return this.join(tableName, columnNames, 'right', tableAlias);
+  }
+
+  public fullOuterJoinAndSelect<TKey extends TableNames<T>>(
+    tableName: TKey,
+    columnNames: ColumnsNames<T, TKey>[],
+    tableAlias?: string
+  ) {
+    return this.join(tableName, columnNames, 'full outer', tableAlias);
+  }
+
+  public whereToJoin(tableIdentity: WhereToJoinTableIdentity<T>, rawWhere: string, params?: QueryParams) {
+    const statement = this.findJoinStatement(tableIdentity);
   }
 
   public get rawQuery(): string {
