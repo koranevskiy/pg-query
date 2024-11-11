@@ -20,6 +20,10 @@ class QueryBuilder<T extends TablesDefinition<T>> {
 
   private paramNum = 1;
 
+  private isWhere = false;
+
+  private whereStatements: string[] = [];
+
   constructor(private readonly queryRunner: QueryRunner) {}
 
   private registerTableAlias(tableName: string, tableAlias: string): void {
@@ -88,7 +92,7 @@ class QueryBuilder<T extends TablesDefinition<T>> {
       if (!resultSql.includes(fullPlaceholder)) {
         continue;
       }
-      resultSql = resultSql.replaceAll(fullPlaceholder, `${this.paramNum++}`);
+      resultSql = resultSql.replaceAll(fullPlaceholder, `$${this.paramNum++}`);
       this.params.push(value);
     }
     return resultSql;
@@ -138,17 +142,64 @@ class QueryBuilder<T extends TablesDefinition<T>> {
 
   public whereToJoin(tableIdentity: WhereToJoinTableIdentity<T>, rawWhere: string, params?: QueryParams) {
     const statement = this.findJoinStatement(tableIdentity);
+    const paramSql = this.parametrizeStatement(rawWhere, params);
+    statement.where.push(paramSql);
+    return this;
+  }
+
+  public where(rawWhere: string, params?: QueryParams) {
+    if (!this.isWhere) {
+      this.isWhere = true;
+    }
+    const paramsSql = this.parametrizeStatement(rawWhere, params);
+    this.whereStatements.push(paramsSql);
+    return this;
   }
 
   public get rawQuery(): string {
-    const resultQuery: string[] = [];
+    let resultQuery: string[] = [];
+
+    const selectTables: string[] = []
+
+    const selectedColumns: string[] = [];
+
+    const joinStatements: string[] = [];
 
     if (this.isSelected) {
-      resultQuery.push('select');
-      resultQuery.push(this.selectedColumns.join(','));
-      resultQuery.push('from');
-      resultQuery.push(this.selectTables.join(','));
+      selectedColumns.push(this.selectedColumns.join(','));
+      selectTables.push(this.selectTables.join(','));
     }
+
+    if (this.isJoined) {
+      for (const statement of this.joinStatements) {
+        selectedColumns.push(statement.selectedColumns.join(','));
+        const joinStatement = `${statement.type} join ${statement.tableName} on ${statement.where.join(' ')}`
+        joinStatements.push(joinStatement);
+      }
+    }
+
+    if(this.isSelected) {
+      resultQuery.push('select')
+      resultQuery = resultQuery.concat(selectedColumns)
+      resultQuery.push('from')
+      resultQuery = resultQuery.concat(selectTables)
+    }
+
+    if(this.isJoined) {
+      resultQuery = resultQuery.concat(joinStatements)
+    }
+
+    if (this.isWhere) {
+      resultQuery.push('where')
+      resultQuery = resultQuery.concat(this.whereStatements);
+    }
+
+    // console.log({
+    //   resultQuery,
+    //   selectedColumns,
+    //   selectTables,
+    //   joinStatements
+    // })
 
     return resultQuery.join(' ');
   }
