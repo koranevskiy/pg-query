@@ -1,4 +1,4 @@
-import { QueryBuilder } from 'src/lib/query-builder';
+import { qb } from 'src/lib/query-builder';
 
 interface Tables {
   users: {
@@ -14,7 +14,7 @@ interface Tables {
   };
 }
 
-const query = new QueryBuilder<Tables>({} as any).
+const query = qb<Tables>({} as any).
      select('emails', ['email', 'reg_date', 'e_id'], 'e')
     .leftJoinAndSelect('users', ['lastname', 'name'], 'u')
     .whereToJoin({tableName: 'users', tableAlias: 'u'}, 'e.user_id = :user_id', {user_id: 1})
