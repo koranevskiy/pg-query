@@ -1,7 +1,8 @@
-import { ColumnsNames, TableNames, TablesDefinition } from 'src/lib/types/select.types';
+import {ColumnsNames, OrderByOptions, TableNames, TablesDefinition} from 'src/lib/types/select.types';
 import { QueryParams, QueryRunner } from 'src/lib/types/query-builder.types';
 import { getSafeColumnName, getSafeTableName } from 'src/lib/utils/table.utils';
 import { JoinStatement, JoinType, WhereToJoinTableIdentity } from 'src/lib/types/join.types';
+import {escapeIdentifier} from "pg";
 
 class QueryBuilder<T extends TablesDefinition<T>> {
   private isSelected = false;
@@ -23,6 +24,18 @@ class QueryBuilder<T extends TablesDefinition<T>> {
   private isWhere = false;
 
   private whereStatements: string[] = [];
+
+  private isOrder = false;
+
+  private orderStatements: string[] = [];
+
+  private isLimit = false;
+
+  private limitNum = 0;
+
+  private isOffset = false;
+
+  private offsetStart: number = 0;
 
   constructor(private readonly queryRunner: QueryRunner) {}
 
@@ -156,6 +169,59 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     return this;
   }
 
+  public orderBy(options: OrderByOptions) {
+    const { name, nulls = 'FIRST', expression, direction = 'ASC'} = options;
+    if (!expression && !name) {
+      throw new Error('Order by must contains name or expression options')
+    }
+    if (expression && name) {
+      throw new Error('Order by must contain only name or expression option')
+    }
+    if (!this.isOrder) {
+      this.isOrder = true;
+    }
+    let resultStatement: string;
+
+    if (name) {
+      // need to find table alias or table prefix
+      const [alias, colName] = name.split('.');
+      if(colName) {
+        resultStatement = getSafeColumnName(colName, '', alias);
+      } else {
+        resultStatement = escapeIdentifier(alias);
+      }
+    }
+    if (expression) {
+      resultStatement = expression;
+    }
+    this.orderStatements.push(`${resultStatement} ${direction} NULLS ${nulls}`);
+    return this;
+  }
+
+  public limit(rowNum: number) {
+    if(!this.isLimit) {
+      this.isLimit = true;
+    }
+    if (typeof rowNum !== 'number') {
+      throw new Error('Limit must be a number')
+    }
+
+    this.limitNum = rowNum;
+
+    return this;
+  }
+
+  public offset(start: number) {
+    if (!this.isOffset) {
+      this.isOffset = true;
+    }
+    if (typeof start !== 'number') {
+      throw new Error('Start must be a number')
+    }
+    this.offsetStart = start;
+    return this;
+  }
+
   public get rawQuery(): string {
     let resultQuery: string[] = [];
 
@@ -173,15 +239,15 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     if (this.isJoined) {
       for (const statement of this.joinStatements) {
         selectedColumns.push(statement.selectedColumns.join(','));
-        const joinStatement = `${statement.type} join ${statement.tableName} on ${statement.where.join(' ')}`
+        const joinStatement = `${statement.type} JOIN ${statement.tableName} ON ${statement.where.join(' ')}`
         joinStatements.push(joinStatement);
       }
     }
 
     if(this.isSelected) {
-      resultQuery.push('select')
+      resultQuery.push('SELECT')
       resultQuery = resultQuery.concat(selectedColumns)
-      resultQuery.push('from')
+      resultQuery.push('FROM')
       resultQuery = resultQuery.concat(selectTables)
     }
 
@@ -190,8 +256,22 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     }
 
     if (this.isWhere) {
-      resultQuery.push('where')
+      resultQuery.push('WHERE')
       resultQuery = resultQuery.concat(this.whereStatements);
+    }
+
+    if (this.isOrder) {
+      resultQuery.push('ORDER BY')
+      resultQuery.push(this.orderStatements.join(', '))
+    }
+
+    // Already validated this.limitNum at limit method
+    if(this.isLimit) {
+      resultQuery.push(`LIMIT ${this.limitNum}`)
+    }
+    // Already validated this.offsetStart at offset method
+    if(this.isOffset) {
+      resultQuery.push(`OFFSET ${this.offsetStart}`)
     }
 
     // console.log({
