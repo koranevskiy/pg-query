@@ -2,24 +2,20 @@ import { ColumnsNames, TableNames, TablesDefinition } from 'src/lib/types/select
 import { QueryParams, QueryRunner } from 'src/lib/types/query-builder.types';
 import { getSafeColumnName, getSafeTableName } from 'src/lib/utils/table.utils';
 import { JoinStatement, JoinType, WhereToJoinTableIdentity } from 'src/lib/types/join.types';
-import {applyMixins, applyMixinsAndInstanate} from 'src/lib/utils/mixin.utils';
+import { applyMixinsAndInstanate } from 'src/lib/utils/mixin.utils';
 import { OffsetQueryBuilder } from 'src/lib/queries/offset.query';
 import { LimitQueryBuilder } from './queries/limit.query';
 import { OrderByQueryBuilder } from './queries/order-by.query';
+import { SelectQueryBuilder } from 'src/lib/queries/select.query';
 
 interface QueryBuilder<T extends TablesDefinition<T>>
   extends OffsetQueryBuilder,
     LimitQueryBuilder,
-    OrderByQueryBuilder {}
+    OrderByQueryBuilder,
+    SelectQueryBuilder<T> {}
 
 class QueryBuilder<T extends TablesDefinition<T>> {
-  private isSelected = false;
-
-  private selectedColumns: string[] = [];
-
-  private selectTables: string[] = [];
-
-  private tableAlias: Record<string, string> = {};
+  protected tableAlias: Record<string, string> = {};
 
   private isJoined = false;
 
@@ -35,19 +31,11 @@ class QueryBuilder<T extends TablesDefinition<T>> {
 
   constructor(private readonly queryRunner: QueryRunner) {}
 
-  private registerTableAlias(tableName: string, tableAlias: string): void {
+  protected registerTableAlias(tableName: string, tableAlias: string): void {
     if (tableAlias in this.tableAlias) {
       throw new Error(`TableAlias ${tableAlias} already exists`);
     }
     this.tableAlias[tableAlias] = tableName as string;
-  }
-
-  private addSelectColumn(column: string, tableName: string, tableAlias?: string): void {
-    this.selectedColumns.push(getSafeColumnName(column as string, tableName, tableAlias));
-  }
-
-  private addTableSelect(tableName: string, tableAlias?: string): void {
-    this.selectTables.push(getSafeTableName(tableName, tableAlias));
   }
 
   private findJoinStatement(tableIdentity: WhereToJoinTableIdentity<T>): JoinStatement {
@@ -90,7 +78,7 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     return this;
   }
 
-  private parametrizeStatement(rawSql: string, params?: QueryParams) {
+  protected parametrizeStatement(rawSql: string, params?: QueryParams): string {
     if (!params) {
       return rawSql;
     }
@@ -105,24 +93,6 @@ class QueryBuilder<T extends TablesDefinition<T>> {
       this.params.push(value);
     }
     return resultSql;
-  }
-
-  public select<TKey extends TableNames<T>>(
-    tableName: TKey,
-    columnNames: ColumnsNames<T, TKey>[],
-    tableAlias?: string
-  ) {
-    if (!this.isSelected) {
-      this.isSelected = true;
-    }
-    if (tableAlias) {
-      this.registerTableAlias(tableName as string, tableAlias);
-    }
-    for (const column of columnNames) {
-      this.addSelectColumn(column as string, tableName as string, tableAlias);
-    }
-    this.addTableSelect(tableName as string, tableAlias);
-    return this;
   }
 
   public leftJoinAndSelect<TKey extends TableNames<T>>(
@@ -218,7 +188,12 @@ class QueryBuilder<T extends TablesDefinition<T>> {
   }
 }
 
-const ProxyQueryBuilder = applyMixinsAndInstanate(QueryBuilder, [OffsetQueryBuilder, LimitQueryBuilder, OrderByQueryBuilder]);
+const ProxyQueryBuilder = applyMixinsAndInstanate(QueryBuilder, [
+  OffsetQueryBuilder,
+  LimitQueryBuilder,
+  OrderByQueryBuilder,
+  SelectQueryBuilder,
+]);
 
 function queryBuilderFactory<T extends TablesDefinition<T>>(queryRunner: QueryRunner): QueryBuilder<T> {
   return new ProxyQueryBuilder(queryRunner);

@@ -3,6 +3,7 @@ import { getSafeColumnName } from 'src/lib/utils/table.utils';
 import { escapeIdentifier } from 'pg';
 
 class OrderByQueryBuilder {
+
   protected isOrder = false;
 
   protected orderStatements: string[] = [];
@@ -21,12 +22,12 @@ class OrderByQueryBuilder {
     let resultStatement: string;
 
     if (name) {
-      // need to find table alias or table prefix
-      const [alias, colName] = name.split('.');
+      // need to find table schema or table prefix => schema = schema|alias|col
+      const [schema, colName] = name.split('.');
       if (colName) {
-        resultStatement = getSafeColumnName(colName, '', alias);
+        resultStatement = getSafeColumnName(colName, '', schema);
       } else {
-        resultStatement = escapeIdentifier(alias);
+        resultStatement = escapeIdentifier(schema);
       }
     }
     if (expression) {
