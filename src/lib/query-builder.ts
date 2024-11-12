@@ -1,81 +1,37 @@
-import { ColumnsNames, TableNames, TablesDefinition } from 'src/lib/types/select.types';
-import { QueryParams, QueryRunner } from 'src/lib/types/query-builder.types';
-import { getSafeColumnName, getSafeTableName } from 'src/lib/utils/table.utils';
-import { JoinStatement, JoinType, WhereToJoinTableIdentity } from 'src/lib/types/join.types';
+import { TablesDefinition } from 'src/lib/types/select.types';
+import { QueryParams, QueryRunner, SharedQueryBuilderMethod } from 'src/lib/types/query-builder.types';
 import { applyMixinsAndInstanate } from 'src/lib/utils/mixin.utils';
 import { OffsetQueryBuilder } from 'src/lib/queries/offset.query';
 import { LimitQueryBuilder } from './queries/limit.query';
 import { OrderByQueryBuilder } from './queries/order-by.query';
 import { SelectQueryBuilder } from 'src/lib/queries/select.query';
+import { WhereQueryBuilder } from 'src/lib/queries/where.query';
+import { JoinQueryBuilder } from 'src/lib/queries/join.query';
 
 interface QueryBuilder<T extends TablesDefinition<T>>
   extends OffsetQueryBuilder,
     LimitQueryBuilder,
     OrderByQueryBuilder,
-    SelectQueryBuilder<T> {}
+    SelectQueryBuilder<T>,
+    WhereQueryBuilder,
+    JoinQueryBuilder<T> {}
 
-class QueryBuilder<T extends TablesDefinition<T>> {
+class QueryBuilder<T extends TablesDefinition<T>> extends SharedQueryBuilderMethod {
   protected tableAlias: Record<string, string> = {};
-
-  private isJoined = false;
-
-  private joinStatements: JoinStatement[] = [];
 
   private params: any[] = [];
 
   private paramNum = 1;
 
-  private isWhere = false;
+  constructor(private readonly queryRunner: QueryRunner) {
+    super();
+  }
 
-  private whereStatements: string[] = [];
-
-  constructor(private readonly queryRunner: QueryRunner) {}
-
-  protected registerTableAlias(tableName: string, tableAlias: string): void {
+  protected override registerTableAlias(tableName: string, tableAlias: string): void {
     if (tableAlias in this.tableAlias) {
       throw new Error(`TableAlias ${tableAlias} already exists`);
     }
     this.tableAlias[tableAlias] = tableName as string;
-  }
-
-  private findJoinStatement(tableIdentity: WhereToJoinTableIdentity<T>): JoinStatement {
-    const statement = this.joinStatements.find(
-      ({ tableName }) => getSafeTableName(tableIdentity.tableName as string, tableIdentity.tableAlias) === tableName
-    );
-    if (!statement) {
-      throw new Error(
-        `Unable to find join table where name = ${tableIdentity.tableName as string} and alias = ${
-          tableIdentity.tableAlias
-        }`
-      );
-    }
-    return statement;
-  }
-
-  private join<TKey extends TableNames<T>>(
-    tableName: TKey,
-    columnNames: ColumnsNames<T, TKey>[],
-    type: JoinType,
-    tableAlias?: string
-  ) {
-    if (!this.isJoined) {
-      this.isJoined = true;
-    }
-
-    if (tableAlias) {
-      this.registerTableAlias(tableName as string, tableAlias);
-    }
-
-    const columnsToSelect = columnNames.map(col => getSafeColumnName(col as string, tableName as string, tableAlias));
-    this.joinStatements.push({
-      type,
-      tableAlias,
-      tableName: getSafeTableName(tableName as string, tableAlias),
-      selectedColumns: columnsToSelect,
-      where: [],
-    });
-
-    return this;
   }
 
   protected parametrizeStatement(rawSql: string, params?: QueryParams): string {
@@ -95,54 +51,14 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     return resultSql;
   }
 
-  public leftJoinAndSelect<TKey extends TableNames<T>>(
-    tableName: TKey,
-    columnNames: ColumnsNames<T, TKey>[],
-    tableAlias?: string
-  ) {
-    return this.join(tableName, columnNames, 'left', tableAlias);
-  }
-
-  public rightJoinAndSelect<TKey extends TableNames<T>>(
-    tableName: TKey,
-    columnNames: ColumnsNames<T, TKey>[],
-    tableAlias?: string
-  ) {
-    return this.join(tableName, columnNames, 'right', tableAlias);
-  }
-
-  public fullOuterJoinAndSelect<TKey extends TableNames<T>>(
-    tableName: TKey,
-    columnNames: ColumnsNames<T, TKey>[],
-    tableAlias?: string
-  ) {
-    return this.join(tableName, columnNames, 'full outer', tableAlias);
-  }
-
-  public whereToJoin(tableIdentity: WhereToJoinTableIdentity<T>, rawWhere: string, params?: QueryParams) {
-    const statement = this.findJoinStatement(tableIdentity);
-    const paramSql = this.parametrizeStatement(rawWhere, params);
-    statement.where.push(paramSql);
-    return this;
-  }
-
-  public where(rawWhere: string, params?: QueryParams) {
-    if (!this.isWhere) {
-      this.isWhere = true;
-    }
-    const paramsSql = this.parametrizeStatement(rawWhere, params);
-    this.whereStatements.push(paramsSql);
-    return this;
-  }
-
   public get rawQuery(): string {
     let resultQuery: string[] = [];
 
     const selectTables: string[] = [];
 
-    const selectedColumns: string[] = [];
+    let selectedColumns: string[] = [];
 
-    const joinStatements: string[] = [];
+    let joinStatements: string[] = [];
 
     if (this.isSelected) {
       selectedColumns.push(this.selectedColumns.join(','));
@@ -150,11 +66,9 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     }
 
     if (this.isJoined) {
-      for (const statement of this.joinStatements) {
-        selectedColumns.push(statement.selectedColumns.join(','));
-        const joinStatement = `${statement.type} JOIN ${statement.tableName} ON ${statement.where.join(' ')}`;
-        joinStatements.push(joinStatement);
-      }
+      const { joinQueries, joinSelectColumns } = this.getJoinDataToBuildQuery();
+      selectedColumns = selectedColumns.concat(joinSelectColumns);
+      joinStatements = joinQueries;
     }
 
     if (this.isSelected) {
@@ -169,8 +83,7 @@ class QueryBuilder<T extends TablesDefinition<T>> {
     }
 
     if (this.isWhere) {
-      resultQuery.push('WHERE');
-      resultQuery = resultQuery.concat(this.whereStatements);
+      resultQuery.push(this.buildWhereQuery());
     }
 
     if (this.isOrder) {
@@ -193,6 +106,8 @@ const ProxyQueryBuilder = applyMixinsAndInstanate(QueryBuilder, [
   LimitQueryBuilder,
   OrderByQueryBuilder,
   SelectQueryBuilder,
+  WhereQueryBuilder,
+  JoinQueryBuilder,
 ]);
 
 function queryBuilderFactory<T extends TablesDefinition<T>>(queryRunner: QueryRunner): QueryBuilder<T> {
