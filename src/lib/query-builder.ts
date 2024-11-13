@@ -7,6 +7,7 @@ import { OrderByQueryBuilder } from './queries/order-by.query';
 import { SelectQueryBuilder } from 'src/lib/queries/select.query';
 import { WhereQueryBuilder } from 'src/lib/queries/where.query';
 import { JoinQueryBuilder } from 'src/lib/queries/join.query';
+import { InsertQueryBuilder } from 'src/lib/queries/insert.query';
 
 interface QueryBuilder<T extends TablesDefinition<T>>
   extends OffsetQueryBuilder,
@@ -14,20 +15,21 @@ interface QueryBuilder<T extends TablesDefinition<T>>
     OrderByQueryBuilder,
     SelectQueryBuilder<T>,
     WhereQueryBuilder,
-    JoinQueryBuilder<T> {}
+    JoinQueryBuilder<T>,
+    InsertQueryBuilder<T> {}
 
 class QueryBuilder<T extends TablesDefinition<T>> extends SharedQueryBuilderMethod {
   protected tableAlias: Record<string, string> = {};
 
-  private params: any[] = [];
+  protected params: any[] = [];
 
-  private paramNum = 1;
+  protected paramNum = 1;
 
   constructor(private readonly queryRunner: QueryRunner) {
     super();
   }
 
-  protected override registerTableAlias(tableName: string, tableAlias: string): void {
+  protected registerTableAlias(tableName: string, tableAlias: string): void {
     if (tableAlias in this.tableAlias) {
       throw new Error(`TableAlias ${tableAlias} already exists`);
     }
@@ -52,6 +54,12 @@ class QueryBuilder<T extends TablesDefinition<T>> extends SharedQueryBuilderMeth
   }
 
   public get rawQuery(): string {
+
+    if(this.isInserted) {
+      console.log(this.params)
+      return this.buildInsertQuery()
+    }
+
     let resultQuery: string[] = [];
 
     const selectTables: string[] = [];
@@ -108,6 +116,7 @@ const ProxyQueryBuilder = applyMixinsAndInstanate(QueryBuilder, [
   SelectQueryBuilder,
   WhereQueryBuilder,
   JoinQueryBuilder,
+  InsertQueryBuilder
 ]);
 
 function queryBuilderFactory<T extends TablesDefinition<T>>(queryRunner: QueryRunner): QueryBuilder<T> {

@@ -1,4 +1,3 @@
-
 interface QueryRunner {
   query<ResultRow>(query: string, params?: any[]): Promise<ResultRow>;
 }
@@ -12,6 +11,9 @@ type QueryParams = Record<string, any>;
  */
 abstract class SharedQueryBuilderMethod {
   protected tableAlias: Record<string, string> = {};
+
+  protected params: any[] = [];
+  protected paramNum = 1;
 
   protected parametrizeStatement?(rawSql: string, params?: QueryParams): string {
     return;

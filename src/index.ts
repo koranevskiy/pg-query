@@ -4,7 +4,7 @@ interface Tables {
   users: {
     id: number;
     name: string;
-    lastname: string;
+    lastname?: string;
   };
   emails: {
     e_id: number;
@@ -30,3 +30,10 @@ const query = qb<Tables>({} as any).
     .rawQuery;
 
 console.log(query)
+
+const queryInsert = qb<Tables>({} as any).insert('users', [{ name: 'a', id: 2 }, {name: 'zxc', id: {
+    sql: 'id + :p_zxc',
+    params: {p_zxc: 300}
+    }}]).rawQuery;
+
+console.log(queryInsert);
